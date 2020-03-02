@@ -25,3 +25,20 @@ def GetMask(image):
     cv2.fillPoly(mask, roi_corners, ignore_mask_color)
 
     return mask
+
+# Read source, target and mask for a given id
+def Read(id, path=""):
+    mask = plt.imread(path + "mask_" + id + ".jpg") / 255
+    return mask
+
+# Driver code
+if __name__ == '__main__':
+    # Setting up the input output paths
+    inputDir = '../Images/'
+    outputDir = '../Results/'
+    
+    # Read data and clean mask
+    img = plt.imread(inputDir + "source_09" + ".jpg") / 255
+    GetMask(img)    
+        
+    

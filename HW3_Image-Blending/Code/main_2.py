@@ -1,3 +1,10 @@
+# -*- coding: utf-8 -*-
+"""
+Created on Sun Mar  1 18:40:06 2020
+
+@author: rizuj
+"""
+
 """
 Assignment 3
 
@@ -11,15 +18,17 @@ Assignment 3
 import numpy as np
 from matplotlib import pyplot as plt
 import cv2
-
-
 from datetime import datetime
 
+import scipy.sparse
+from scipy.sparse.linalg import spsolve
+
+
 # Read source, target and mask for a given id
-def Read(id, path = ""):
-    source = plt.imread(path + "source_" + id + ".jpg") / 255
-    target = plt.imread(path + "target_" + id + ".jpg") / 255
-    mask   = plt.imread(path + "mask_" + id + ".jpg") / 255
+def Read(id, path=""):
+    source = cv2.imread(path + "source_" + id + ".jpg") / 255
+    target = cv2.imread(path + "target_" + id + ".jpg") / 255
+    mask = cv2.imread(path + "mask_" + id + ".jpg") / 255
 
     return source, mask, target
 
@@ -28,7 +37,7 @@ def AlignImages(mask, source, target, offset):
     sourceHeight, sourceWidth, _ = source.shape
     targetHeight, targetWidth, _ = target.shape
     xOffset, yOffset = offset
-
+    
     if (xOffset < 0):
         mask    = mask[abs(xOffset):, :]
         source  = source[abs(xOffset):, :]
@@ -48,7 +57,8 @@ def AlignImages(mask, source, target, offset):
         sourceWidth = targetWidth - yOffset
         mask    = mask[:, :sourceWidth]
         source  = source[:, :sourceWidth]
-
+        
+    
     maskLocal = np.zeros_like(target)
     maskLocal[xOffset:xOffset + sourceHeight, yOffset:yOffset + sourceWidth] = mask
     sourceLocal = np.zeros_like(target)
@@ -69,7 +79,7 @@ def myDownsample(img_in):
     return img_out
 
 
-def gauss_pyramid(img_in, numLevels):
+def gaussianPyramid(img_in, numLevels):
 
     # Create a list that will contain all the samples of the img_in.
     pyramid = [img_in]
@@ -83,7 +93,7 @@ def gauss_pyramid(img_in, numLevels):
     return pyramid
 
 
-def lapl_pyramid(gPyramid):
+def laplacianPyramid(gPyramid):
 
     pyramid = []
     levels = len(gPyramid) - 1
@@ -110,8 +120,8 @@ def local_blend(gPyramid_mask, lapPyramid_src, lapPyramid_trgt):
 
     for l in range(levels):
 
-        img_src = lapPyramid_src[l];
-        img_trgt = lapPyramid_trgt[l];
+        img_src = lapPyramid_src[l]
+        img_trgt = lapPyramid_trgt[l]
         mask = gPyramid_mask[l]
 
         # Zero Padding
@@ -135,7 +145,7 @@ def local_blend(gPyramid_mask, lapPyramid_src, lapPyramid_trgt):
 
 def collapsePyramid(blended):
 
-    levels = len(blended) -1
+    levels = len(blended) - 1
 
     for l in range(levels, 0, -1):
 
@@ -160,18 +170,17 @@ def PyramidBlend(source, mask, target):
 
     # Build Gaussian Pyramids
     # for source
-    gPyramid_src = gauss_pyramid(source, numLevels)
+    gPyramid_src = gaussianPyramid(source, numLevels)
     # for target
-    gPyramid_trgt = gauss_pyramid(target, numLevels)
+    gPyramid_trgt = gaussianPyramid(target, numLevels)
     # for mask
-    gPyramid_mask = gauss_pyramid(mask, numLevels)
-
+    gPyramid_mask = gaussianPyramid(mask, numLevels)
 
     # Build Laplacian Pyramids
     # for source
-    lapPyramid_src = lapl_pyramid(gPyramid_src)
+    lapPyramid_src = laplacianPyramid(gPyramid_src)
     # for target
-    lapPyramid_trgt = lapl_pyramid(gPyramid_trgt)
+    lapPyramid_trgt = laplacianPyramid(gPyramid_trgt)
 
     # Get the Local Blend
     blended = local_blend(gPyramid_mask, lapPyramid_src, lapPyramid_trgt)
@@ -183,10 +192,102 @@ def PyramidBlend(source, mask, target):
     return collapsed
 
 
+def laplacian_matrix(n, m):
+    """Generate the Poisson matrix. 
+
+    Refer to: 
+    https://en.wikipedia.org/wiki/Discrete_Poisson_equation
+
+    Note: it's the transpose of the wiki's matrix 
+    """
+    mat_D = scipy.sparse.lil_matrix((m, m))
+    mat_D.setdiag(-1, -1)
+    mat_D.setdiag(4)
+    mat_D.setdiag(-1, 1)
+        
+    mat_A = scipy.sparse.block_diag([mat_D] * n).tolil()
+    
+    mat_A.setdiag(-1, 1*m)
+    mat_A.setdiag(-1, -1*m)
+    
+    return mat_A
+
+
+def poisson_edit(source, target, mask):
+
+    y_max, x_max = target.shape[:-1]
+    y_min, x_min = 0, 0
+
+    x_range = x_max - x_min
+    y_range = y_max - y_min
+        
+    mask = mask[y_min:y_max, x_min:x_max]    
+    mask[mask != 0] = 1
+    #mask = cv2.threshold(mask, 127, 1, cv2.THRESH_BINARY)
+    
+    mat_A = laplacian_matrix(y_range, x_range)
+
+    # for \Delta g
+    laplacian = mat_A.tocsc()
+    
+    m_x_range= mask.shape[0] 
+    m_y_range = mask.shape[1]
+
+    # set the region outside the mask to identity    
+    for y in range(1, m_x_range - 1):
+        for x in range(1,m_y_range  - 1):
+            if mask[y, x] == 0:
+                k = x + y * x_range
+                mat_A[k, k] = 1
+                mat_A[k, k + 1] = 0
+                mat_A[k, k - 1] = 0
+                mat_A[k, k + x_range] = 0
+                mat_A[k, k - x_range] = 0
+
+    # corners
+    # mask[0, 0]
+    # mask[0, y_range-1]
+    # mask[x_range-1, 0]
+    # mask[x_range-1, y_range-1]
+
+    mat_A = mat_A.tocsc()
+
+    mask_flat = mask.flatten()    
+    for channel in range(source.shape[2]):
+        source_flat = source[y_min:y_max, x_min:x_max, channel].flatten()
+        target_flat = target[y_min:y_max, x_min:x_max, channel].flatten()        
+
+        #concat = source_flat*mask_flat + target_flat*(1-mask_flat)
+        
+        # inside the mask:
+        # \Delta f = div v = \Delta g       
+        alpha = 1
+        mat_b = laplacian.dot(source_flat)*alpha
+
+        # outside the mask:
+        # f = t
+        mat_b[mask_flat==0] = target_flat[mask_flat==0]
+        
+        x = spsolve(mat_A, mat_b)
+        #print(x.shape)
+        x = x.reshape((y_range, x_range))
+        #print(x.shape)
+        x[x > 255] = 255
+        x[x < 0] = 0
+        x = x.astype('uint8')
+        #x = cv2.normalize(x, alpha=0, beta=255, norm_type=cv2.NORM_MINMAX)
+        #print(x.shape)
+
+        target[y_min:y_max, x_min:x_max, channel] = x
+    
+    
+    return target
+
 # Poisson Blend
 def PoissonBlend(source, mask, target, isMix):
 
     return source * mask + target * (1 - mask)
+
 
 if __name__ == '__main__':
     # Setting up the input output paths
@@ -197,7 +298,11 @@ if __name__ == '__main__':
     isMix = False
 
     # Source offsets in target
-    offsets = [[0, 0], [0, 0], [210, 10], [10, 28], [140, 80], [-40, 90], [60, 100], [20, 20], [-28, 88]]
+    offsets = [[0, 0], [0, 0], [210, 10], [10, 28], [
+        140, 80], [-40, 90], [60, 100], [20, 20], [-28, 88]]
+
+#    offsets = [[0, 0], [0, 0], [210, 10], [10, 28], [
+#        140, 80], [-40, 90], [60, 100], [20, 20], [-28, 88]]
 
     # main area to specify files and display blended image
     for index in range(1, len(offsets)):
@@ -207,34 +312,49 @@ if __name__ == '__main__':
         # Cleaning up the mask
         mask = np.ones_like(maskOriginal)
         mask[maskOriginal < 0.5] = 0
+        print("source " , source.shape)
+        print("mask ",mask.shape)
+        print("target ",target.shape)
+        print("\n")
+    
 
         # Align the source and mask using the provided offest
         source, mask = AlignImages(mask, source, target, offsets[index])
+        
+        print("source " , source.shape)
+        print("mask ",mask.shape)
+        print("target ",target.shape)
+        print("\n")
+    
+        
+#        cv2.imwrite("{}source_tmp_{}.jpg".format(outputDir, str(index).zfill(2)), source)
 
 
         ### The main part of the code ###
 
-
         # Implement the PyramidBlend function (Task 1)
         pyramidOutput = PyramidBlend(source, mask, target)
-
-        new = (1/(2*2.25)) * pyramidOutput + 0.5
-
+        pyramidOutput  = np.clip(pyramidOutput,0,1)
+        
         # Implement the PoissonBlend function (Task 2)
-#        poissonOutput = PoissonBlend(source, mask, target, isMix)
+        # poissonOutput = PoissonBlend(source, mask, target, isMix)
 
+
+
+        #pOut = poisson_edit(source, target, mask[:,:,0])
+        
+#        poissonOutput = source * mask + target * (1 - mask)
 
         # Writing the result
 
         now = datetime.now()
         timestamp = datetime.timestamp(now)
 
-
-        # plt.imsave("{}pyramid_{}.jpg".format(outputDir, str(index).zfill(2)), new)
-        #
-        plt.imsave("{}pyramid_{}__".format(outputDir, str(index).zfill(2)) + str(timestamp) + ".jpg", new)
-
-#        if not isMix:
-#            plt.imsave("{}poisson_{}.jpg".format(outputDir, str(index).zfill(2)), poissonOutput)
-#        else:
-#            plt.imsave("{}poisson_{}_Mixing.jpg".format(outputDir, str(index).zfill(2)), poissonOutput)
+        plt.imsave("{}pyramid_{}.jpg".format(outputDir, str(index).zfill(2)), pyramidOutput)
+#        plt.imsave("{}pyramid_{}__".format(outputDir, str(
+#            index).zfill(2)) + str(timestamp) + ".jpg", pyramidOutput)
+        
+        if not isMix:
+            plt.imsave("{}poisson_{}.jpg".format(outputDir, str(index).zfill(2)), pOut)
+        else:
+            plt.imsave("{}poisson_{}_Mixing.jpg".format(outputDir, str(index).zfill(2)), pOut)
