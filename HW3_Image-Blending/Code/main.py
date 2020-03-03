@@ -268,10 +268,8 @@ if __name__ == '__main__':
 
     # Source offsets in target
 #    offsets = [[0, 0], [0, 0], [210, 10], [10, 28], [
-#        140, 80], [-40, 90], [60, 100], [20, 20], [-28, 88]]
+#        140, 80], [-40, 90], [60, 100], [20, 20], [-28, 88], [-16,386]]]
 
-#    offsets = [[0, 0], [0, 0], [210, 10], [10, 28], [
-#        140, 80], [-40, 90], [60, 100], [20, 20], [-28, 88]]
 
     # main area to specify files and display blended image
 #    for index in range(1, len(offsets)):
