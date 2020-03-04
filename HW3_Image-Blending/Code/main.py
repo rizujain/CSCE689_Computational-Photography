@@ -19,8 +19,9 @@ from scipy.sparse.linalg import spsolve
 
 # Read source, target and mask for a given id
 def Read(id, path=""):
+#
     source = plt.imread(path + "source_" + id + ".jpg") / 255
-    target = plt.imread(path + "target_" + id + ".jpg") / 255
+    target  = plt.imread(path + "target_" + id + ".jpg") / 255
     mask = plt.imread(path + "mask_" + id + ".jpg") / 255
 
     return source, mask, target
@@ -183,6 +184,7 @@ def collapsePyramid(blended):
 # Pyramid Blend
 def PyramidBlend(source, mask, target):
 
+    
     # Number of levels in pyramid
     numLevels = 5
 
@@ -206,19 +208,20 @@ def PyramidBlend(source, mask, target):
     # Generate Collapsed Blended Pyramid
     collapsed = collapsePyramid(blended)
 
-    # return source * mask + target * (1 - mask)
     return collapsed
 
 
 # Poisson Blend 
-def PoissonBlend(source, mask, target, isMix):
+def PoissonBlend(source_orig, mask, target_orig, isMix):
 
+    source = source_orig * 255
+    source = source.astype(np.uint8)
+    
+    target = target_orig * 255
+    target = target.astype(np.uint8)
+    
     width_y = target.shape[0]
     height_x = target.shape[1]
-
-    plt.imsave("../Results/source_temp_07.jpg", source)
-    plt.imsave("../Results/mask_temp_07.jpg", mask)
-    plt.imsave("../Results/target_temp_07.jpg", target)
 
     # Generate the Poisson matrix A
     
@@ -240,7 +243,7 @@ def PoissonBlend(source, mask, target, isMix):
     
     # store the column compressed format to generate matrix B later.
     temp_matrixA = matrixA.tocsc()  
-    
+
     # iterate through each pixel of the mat_A
     # check its position w.r.t. matrixA
     for y in range(1, width_y - 1):
@@ -262,28 +265,23 @@ def PoissonBlend(source, mask, target, isMix):
     # Convert to compressed column format
     matrixA = matrixA.tocsc()
 
-    plt.imsave("../Results/source_temp_07_1.jpg", source)
-    plt.imsave("../Results/mask_temp_07_1.jpg", mask)
-    plt.imsave("../Results/target_temp_07_1.jpg", target)
-
     mask_flat = mask.flatten()
     for channel in range(3):
-        source_flat = source[0:width_y,
-                             0:height_x, channel].flatten()
+        source_flat = source[0:width_y, 0:height_x, channel].flatten()
         target_flat = target[0:width_y, 0:height_x, channel].flatten()
 
-        plt.imsave("../Results/source_temp_07_ch.jpg", source)
-        plt.imsave("../Results/mask_temp_07_ch.jpg", mask)
-        plt.imsave("../Results/target_temp_07_ch.jpg", target)
 
         # Generate the B matrix of the equation
         
         # the following line of code sets the source values
         # for the pixel inside the mask (white region)      
-        matrixB =  temp_matrixA.dot(source_flat)
 
-        # the following line of code sets target values
-        # for the pixels outside the mask (black region)
+        matrixB =  temp_matrixA.dot(source_flat)
+        
+        if isMix == True:
+            matrixB_trgt =  temp_matrixA.dot(target_flat)
+            matrixB = (matrixB +matrixB_trgt )/2
+
         matrixB[mask_flat == 0] = target_flat[mask_flat == 0]
 
         matrixX = spsolve(matrixA, matrixB)
@@ -291,15 +289,11 @@ def PoissonBlend(source, mask, target, isMix):
         matrixX[matrixX > 255] = 255
         matrixX[matrixX < 0] = 0
         matrixX = matrixX.astype('uint8')
-        # x = cv2.normalize(x, alpha=0, beta=255, norm_type=cv2.NORM_MINMAX)
 
         target[0:width_y, 0:height_x, channel] = matrixX
 
-    print(target.shape)
-    cv2.imwrite("figs/out/target_temp_07_end.jpg", target)
 
     return target
-    # return source * mask + target * (1 - mask)
 
 
 if __name__ == '__main__':
@@ -316,52 +310,40 @@ if __name__ == '__main__':
 
 
     # main area to specify files and display blended image
-#    for index in range(1, len(offsets)):
-#        # Read data and clean mask
-#        # source, maskOriginal, target = Read(str(index).zfill(2), inputDir)
-#        source, maskOriginal, target = Read(str(index).zfill(2), inputDir)
-#
-#        # Cleaning up the mask
-#        mask = np.ones_like(maskOriginal)
-#        mask[maskOriginal < 0.5] = 0    
+    for index in range(1, len(offsets)):
+        
+        # Read data and clean mask
+        # source, maskOriginal, target = Read(str(index).zfill(2), inputDir)
+        source, maskOriginal, target = Read(str(index).zfill(2), inputDir)
 
-        # source = plt.imread("../Images/source_07.jpg") / 255
-        # target = plt.imread("../Images/target_07.jpg") / 255
-        # maskOriginal = plt.imread("../Images/mask_07.jpg") / 255
+        # Cleaning up the mask
+        mask = np.ones_like(maskOriginal)
+        mask[maskOriginal < 0.5] = 0    
 
-    source = cv2.imread("../Images/source_07.jpg")
-    target = cv2.imread("../Images/target_07.jpg")
-    maskOriginal = cv2.imread("../Images/mask_07.jpg")
-    
-    mask = np.ones_like(maskOriginal)
-    mask[maskOriginal < 0.5] = 0    
 
-    # Align the source and mask using the provided offest
-    source, mask = AlignImages(mask, source, target, [20,20])
+        # Align the source and mask using the provided offest
+        source, mask = AlignImages(mask, source, target, offsets[index])
 
 
         ### The main part of the code ###
 
         # Implement the PyramidBlend function (Task 1)
-#        pyramidOutput = PyramidBlend(source, mask, target)
-#        pyramidOutput  = np.clip(pyramidOutput,0,1)
-#
-        #         # Implement the PoissonBlend function (Task 2)'
-    mask_1D = mask[:,:,0]
-    poissonOutput = PoissonBlend(source, mask_1D, target, isMix)
-    cv2.imwrite("../Results/poisson_out_07.jpg", poissonOutput)
+        pyramidOutput = PyramidBlend(source, mask, target)
+        pyramidOutput  = np.clip(pyramidOutput,0,1)
 
 
-#        #         # Writing the result
-#        now = datetime.now()
-#        timestamp = datetime.timestamp(now)
-#
-#        plt.imsave("{}pyramid_{}.jpg".format(outputDir, str(index).zfill(2)), pyramidOutput)
-##
-#    if not isMix:
-#        cv2.imwrite("{}poisson_{}.jpg".format(outputDir, str(index).zfill(2)), poissonOutput)
-#        # cv2.imwrite("../Results/poisson_out_07.jpg", poissonOutput)
-#        # plt.imsave("{}poisson_{}.jpg".format(outputDir, str(index).zfill(2)), pOut)
-#    else:
-#        plt.imsave("{}poisson_{}_Mixing.jpg".format(outputDir, str(index).zfill(2)), pOut)
-##
+        # Implement the PoissonBlend function (Task 2)'
+        mask_1D = mask[:,:,0]
+        poissonOutput = PoissonBlend(source, mask_1D, target, isMix)
+        
+
+        ### Writing the result
+        now = datetime.now()
+        timestamp = datetime.timestamp(now)
+
+        plt.imsave("{}pyramid_{}.jpg".format(outputDir, str(index).zfill(2)), pyramidOutput)
+        
+        if not isMix:
+            plt.imsave("{}poisson_{}.jpg".format(outputDir, str(index).zfill(2)), poissonOutput)
+        else:
+            cv2.imwrite("{}poisson_{}_Mixing.jpg".format(outputDir, str(index).zfill(2)), poissonOutput)
